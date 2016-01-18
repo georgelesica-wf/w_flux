@@ -15,6 +15,14 @@
 library w_flux.action;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:html';
+
+import 'package:uuid/uuid.dart';
+
+import 'package:w_flux/src/interfaces.dart';
+import 'package:w_flux/src/typedefs.dart';
+import 'package:w_flux/src/payload.dart';
 
 /// A command that can be dispatched and listened to.
 ///
@@ -41,12 +49,22 @@ import 'dart:async';
 /// when a consumer needs to check state changes immediately after invoking an
 /// action.
 ///
-class Action<T> implements Function {
+class Action<T extends JsonEncodable> implements Function {
+  static final String _windowId = (new Uuid()).v4();
+  static int _counter = 0;
+
   List _listeners = [];
 
-  /// Dispatch this [Action] to all listeners. If a payload is supplied, it will
-  /// be passed to each listener's callback, otherwise null will be passed.
-  Future call([T payload]) {
+  final String _actionType;
+  final ValueFactory<T> _valueFactory;
+
+  Action() : _actionType = '', _valueFactory = null;
+
+  Action.remote(this._actionType, this._valueFactory);
+
+  String get _windowKey => '${_actionType}-${_windowId}';
+
+  Future _dispatchListeners(Payload<T> payload) {
     // Invoke all listeners in a microtask to enable waiting on futures. The
     // microtask queue is emptied before the event loop continues. This ensures
     // synchronous listeners are invoked in the current tick of the event loop
@@ -62,6 +80,15 @@ class Action<T> implements Function {
         .wait(_listeners.map((l) => new Future.microtask(() => l(payload))));
   }
 
+  /// Dispatch this [Action] to all listeners. If a payload is supplied, it will
+  /// be passed to each listener's callback, otherwise null will be passed.
+  Future call([T value]) {
+    window.localStorage[_windowKey] = JSON.encode(value);
+    window.localStorage[_windowKey] = '';
+    var payload = new Payload(value, true);
+    return _dispatchListeners(payload);
+  }
+
   /// Cancel all subscriptions that exist on this [Action] as a result of
   /// [listen] being called. Useful when tearing down a flux cycle in some
   /// module or unit test.
@@ -73,7 +100,15 @@ class Action<T> implements Function {
   /// dispatched. A payload of type [T] will be passed to the callback if
   /// supplied at dispatch time, otherwise null will be passed. Returns an
   /// [ActionSubscription] which provides means to cancel the subscription.
-  ActionSubscription listen(void onData(T event)) {
+  ActionSubscription listen(void onData(Payload<T> event)) {
+    if (_valueFactory != null) {
+      window.onStorage.where((storageEvent) => storageEvent.key.startsWith(_actionType)).where((storageEvent) => storageEvent.newValue != '').listen((storageEvent) {
+        Map valueMap = JSON.decode(storageEvent.newValue);
+        var payload = new Payload(_valueFactory(valueMap), false);
+        return _dispatchListeners(payload);
+      });
+    }
+
     _listeners.add(onData);
     return new ActionSubscription(() => _listeners.remove(onData));
   }

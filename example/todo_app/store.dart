@@ -29,16 +29,34 @@ class ToDoStore extends Store {
   ToDoStore(ToDoActions this._actions) {
     _todos = [];
 
-    triggerOnAction(_actions.createTodo, (todo) => _todos.add(todo));
-    triggerOnAction(_actions.completeTodo, (todo) => todo.completed = true);
-    triggerOnAction(_actions.deleteTodo, (todo) => _todos.remove(todo));
+    triggerOnAction(_actions.createTodo, (todo) => _todos.add(todo.value));
+    triggerOnAction(_actions.completeTodo, (todo) => _todos[_todos.indexOf(todo.value)].completed = true);
+    triggerOnAction(_actions.deleteTodo, (todo) => _todos.remove(todo.value));
     triggerOnAction(_actions.clearTodoList, (_) => _todos = []);
   }
 }
 
-class Todo {
+class Todo implements JsonEncodable {
+  static Todo todoFactory(Map attributeMap) {
+    var todo = new Todo(attributeMap['description']);
+    todo.completed = attributeMap['completed'];
+    return todo;
+  }
+
   String description;
   bool completed = false;
 
   Todo(String this.description);
+
+  @override
+  Map toJson() {
+    return {
+      'description': description,
+      'completed': completed
+    };
+  }
+
+  int get hashCode => description.hashCode * 10 + (completed ? 1 : 0);
+
+  operator ==(Todo other) => hashCode == other.hashCode;
 }
